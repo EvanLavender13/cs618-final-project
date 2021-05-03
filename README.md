@@ -4,7 +4,7 @@
 - Description
     - Graph `G` that consists of nodes `N`
         - Graphs generated with https://networkx.org/documentation/stable/reference/generators.html
-    - Set of a agents `A`
+    - Set of agents `A`
         - Possible actions
             - Move - move to an adjacent node
             - Stay - stay at the current node
