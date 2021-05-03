@@ -12,7 +12,7 @@
                 - Or return to starting node? This makes sense: agent will travel around, then go back to where it started (home?)
                 - Agent would enter a state where it will traverse the path back before moving/staying again
     - Interaction model
-        - At each timestep `t`:
+        - At every timestep `t`:
             - Every agent performs `1` action
     - Transmission model
         - Get set of nodes that contain infected agents
@@ -20,3 +20,13 @@
           - Let `tp` be the probability of transmission
           - Let `ni` be the number of infected agents at the node
           - Susceptible agents have a `tp * ni` probability of infection
+    - Immunization models
+        - Random
+            - `n` nodes every timestep?
+            - `n` nodes all at once?
+        - Immunize node(s) with highest degree
+            - All at once?
+            - `n` of them every timestep?
+        - Immunize most frequently traveled nodes
+            - Calculate frequency every timestep
+            - `n` of them every timestep?
