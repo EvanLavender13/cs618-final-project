@@ -29,3 +29,10 @@
         - Immunize most frequently traveled nodes
             - Calculate frequency every timestep
             - `n` of them every timestep?
+        - When to immunize?
+            - After certain percentage of population infected?
+            - After certain number of timesteps?
+    - Other
+        - Can try to enforce "social distancing" by lowering agent travel probability during epidemic?
+        - Can have a percentage of population ignore this
+        - Can have a percentage of population be "anti-vax"
