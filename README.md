@@ -9,8 +9,7 @@
             - Move - move to an adjacent node
             - Stay - stay at the current node
             - Return - return to the previous node
-                - Or return to starting node? This makes sense: agent will travel around, then go back to where it started (home?)
-                - Agent would enter a state where it will traverse the path back before moving/staying again
+                - Or return to starting node? This makes sense: agent will travel around, then go back to where they started (home?)
     - Interaction model
         - At every timestep `t`:
             - Every agent performs `1` action
