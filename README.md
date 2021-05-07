@@ -32,6 +32,7 @@
         - When to immunize?
             - After certain percentage of population infected?
             - After certain number of timesteps?
+        - Should vaccines be a limited resource?
     - Other
         - Can try to enforce "social distancing" by lowering agent travel probability during epidemic?
         - Can have a percentage of population ignore this
