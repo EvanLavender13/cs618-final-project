@@ -1,5 +1,7 @@
 # cs618-final-project
 
+![yup](mygif.gif)
+
 # Some kind of epidemic simulator
 - Description
     - Graph `G` that consists of nodes `N`
