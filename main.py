@@ -11,7 +11,7 @@ import numpy as np
 
 def get_args():
     parser = ArgumentParser(description="some kind of thing")
-    parser.add_argument("-G", type=str, choices=["internet"], default="internet", help="graph structure")
+    parser.add_argument("-graph", type=str, choices=["internet", "rel-cave"], default="internet", help="graph structure")
     # parameters
     parser.add_argument("-steps",    type=int,   default=150,  help="number of simulation steps")
     parser.add_argument("-agents",   type=int,   default=100,  help="number of agents")
@@ -21,14 +21,24 @@ def get_args():
     parser.add_argument("-infect",   type=int,   default=15,   help="infection time (in steps)")
     return parser.parse_args()
 
-def draw_graph(graph, positions, agents, i=0):
-    plt.subplots(nrows=1, ncols=1, figsize=(12, 12))
-    nx.draw_networkx_nodes(graph, positions, alpha=0.25)
-    nx.draw_networkx_nodes(graph, positions, nodelist=agents[:, 1][np.where(agents[:, 0] == -1)], node_color="red",   node_size=75)
-    nx.draw_networkx_nodes(graph, positions, nodelist=agents[:, 1][np.where(agents[:, 0] ==  1)], node_color="blue",  node_size=50)
-    nx.draw_networkx_nodes(graph, positions, nodelist=agents[:, 1][np.where(agents[:, 0] ==  0)], node_color="green", node_size=25, alpha=0.5)
-    nx.draw_networkx_edges(graph, positions, alpha=0.1)
-    plt.savefig("output/out{0}.png".format(i))
+def draw_graph(graph, positions, agents, history, i=0):
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
+    nx.draw_networkx_nodes(graph, positions, ax=ax[0], alpha=0.25)
+    nodes = nx.draw_networkx_nodes(graph, positions, ax=ax[0], nodelist=agents[:, 1][np.where(agents[:, 0] == -1)], node_color="red",   node_size=75)
+    nodes.set_zorder(3)
+    nodes = nx.draw_networkx_nodes(graph, positions, ax=ax[0], nodelist=agents[:, 1][np.where(agents[:, 0] ==  1)], node_color="blue",  node_size=50)
+    nodes.set_zorder(2)
+    nodes = nx.draw_networkx_nodes(graph, positions, ax=ax[0], nodelist=agents[:, 1][np.where(agents[:, 0] ==  0)], node_color="green", node_size=25, alpha=0.5)
+    nodes.set_zorder(1)
+    nx.draw_networkx_edges(graph, positions, ax=ax[0], alpha=0.1)
+
+    x = range(history["s_count"].shape[0])
+    ax[1].plot(x, history["s_count"], label="susceptible", color="blue")
+    ax[1].plot(x, history["i_count"], label="infected", color="red")
+    ax[1].plot(x, history["r_count"], label="recovered", color="green")
+    fig.legend()
+
+    fig.savefig("output/out{0}.png".format(i))
     plt.close("all")
 
 def draw_history(history):
@@ -65,7 +75,7 @@ def make_gif():
         images.append(image)
         os.remove(path)
     
-    imageio.mimsave("mygif.gif", images, duration=0.25)
+    imageio.mimsave("mygif.gif", images, duration=0.15)
 
 def get_graph(graph_type):
     # TODO: make number of nodes configurable
@@ -73,6 +83,8 @@ def get_graph(graph_type):
 
     if graph_type == "internet":
         return nx.random_internet_as_graph(n)
+    elif graph_type == "rel-cave":
+        return nx.relaxed_caveman_graph(25, 10, 0.08)
 
 def simulate(args, graph, agents):
     # get parameters
@@ -93,12 +105,15 @@ def simulate(args, graph, agents):
     # track infection times
     infect_times = np.ones(n_agents, dtype=int) * infect_time
 
+    # keep path history (as a stack) for backtracking
+    back = [[] for _ in range(n_agents)]
+
     # node positions for drawing
     positions = nx.spring_layout(graph, seed=0) 
 
     for step in range(n_steps):
         if step % 10 == 0: print("step {0}/{1}".format(step, n_steps))
-        draw_graph(graph, positions, agents, step)
+        draw_graph(graph, positions, agents, history, step)
 
         s_count = np.count_nonzero(agents ==  1)
         i_count = np.count_nonzero(agents == -1)
@@ -125,10 +140,13 @@ def simulate(args, graph, agents):
             prob = np.random.random()
             if prob < travel_prob:
                 new_node = np.random.choice(graph.adj[node])
+                back[i].append(node)
                 agents[i][1] = new_node
+            # elif prob < stay_prob:
             else:
-                # stay home!
-                i = 1
+                if len(back[i]) > 0:
+                    new_node = back[i].pop()
+                    agents[i][1] = new_node
             
         # TODO: can this be done in the loop above?
         # process contacts
@@ -159,7 +177,7 @@ def simulate(args, graph, agents):
 
 if __name__ == "__main__":
     args = get_args()
-    graph = get_graph(args.G) # graph
+    graph = get_graph(args.graph) # graph
     positions = nx.spring_layout(graph, seed=0) # node positions
 
     # TODO: add strategy profile to agents?
