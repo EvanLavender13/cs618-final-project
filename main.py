@@ -125,6 +125,11 @@ def simulate(args, graph, agents):
 
         contacts = defaultdict(list)
 
+        # TODO: temp social distancing, lol
+        if step == 50:
+            travel_prob = 0.05
+            back_prob   = 1 - (travel_prob + stay_prob)
+
         if args.gif and (step + 1) % 5 == 0: draw_graph(graph, positions, agents, history, step)
 
         for i, (stat, node) in enumerate(agents):
