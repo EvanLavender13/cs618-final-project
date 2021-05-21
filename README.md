@@ -1,6 +1,7 @@
 # cs618-final-project
 
 ![yup](mygif.gif)
+![yo](out.png)
 
 # Some kind of epidemic simulator
 - Description
