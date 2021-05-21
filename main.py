@@ -45,7 +45,7 @@ def draw_graph(graph, positions, agents, history, i=0):
 
 def draw_history(history_list):
     x = range(history_list[0]["s_count"].shape[0])
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(6, 6))
     for history in history_list:
         ax.plot(x, history["s_count"], color="blue", alpha=0.5)
         ax.plot(x, history["i_count"], color="red", alpha=0.5)
