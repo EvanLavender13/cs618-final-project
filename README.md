@@ -40,3 +40,16 @@
         - Can try to enforce "social distancing" by lowering agent travel probability during epidemic?
         - Can have a percentage of population ignore this
         - Can have a percentage of population be "anti-vax"
+
+# What to look at?
+- social distancing
+    - show effects of social distancing with percentage of population participating
+    - compare graphs
+    - find where social distancing breaks down when enough agents do not participate
+- immunization
+    - show effects of immunization with different strategies
+    - compare graphs
+    - random strategy
+    - highest degree node strategy
+    - most frequently traveled strategy
+    - find where immunization breaks down when enough agents do not participate?
