@@ -1,7 +1,12 @@
 # cs618-final-project
 
-![yup](mygif.gif)
-![yo](out.png)
+# random immunization
+![degree](random.gif)
+![degree](random.png)
+
+# highest-degree immunization
+![degree](degree.gif)
+![degree](degree.png)
 
 # Some kind of epidemic simulator
 - Description
