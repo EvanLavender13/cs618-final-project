@@ -1,4 +1,5 @@
 import os
+import random
 import re
 
 from argparse import ArgumentParser
@@ -12,14 +13,17 @@ from tqdm import tqdm
 
 def get_args():
     parser = ArgumentParser(description="some kind of thing")
-    parser.add_argument("-graph", type=str, choices=["internet", "rel-cave", "con-cave"], default="internet", help="graph structure")
+    parser.add_argument("-graph", type=str, choices=["internet", "rel-cave", "con-cave", "cliques"], default="internet", help="graph structure")
     # parameters
+    parser.add_argument("-runs",     type=int,   default=1,    help="number of simulations to run")
     parser.add_argument("-steps",    type=int,   default=150,  help="number of simulation steps")
     parser.add_argument("-agents",   type=int,   default=250,  help="number of agents")
-    parser.add_argument("-travel",   type=float, default=0.25, help="travel probability")
-    parser.add_argument("-stay",     type=float, default=0.25, help="stay probability")
-    parser.add_argument("-transmit", type=float, default=0.25, help="transmit probability")
-    parser.add_argument("-infect",   type=int,   default=15,   help="infection time (in steps)")
+    parser.add_argument("-travel",   type=float, default=0.40, help="travel probability")
+    parser.add_argument("-stay",     type=float, default=0.10, help="stay probability")
+    parser.add_argument("-transmit", type=float, default=0.35, help="transmit probability")
+    parser.add_argument("-infect",   type=int,   default=20,   help="infection time (in steps)")
+    parser.add_argument("-social",   type=float, default=1.00, help="percentage of agents that social distance")
+    parser.add_argument("-seed",     type=int,   default=0,    help="random seed")
     parser.add_argument("-gif", action="store_true", help="make gif")
     return parser.parse_args()
 
@@ -35,21 +39,24 @@ def draw_graph(graph, positions, agents, history, i=0):
     nx.draw_networkx_edges(graph, positions, ax=ax[0], alpha=0.1)
 
     x = range(history["s_count"].shape[0])
-    ax[1].plot(x, history["s_count"], label="susceptible", color="blue")
-    ax[1].plot(x, history["i_count"], label="infected", color="red")
-    ax[1].plot(x, history["r_count"], label="recovered", color="green")
+    ax[1].plot(x[:i], history["s_count"][:i], label="susceptible", color="blue")
+    ax[1].plot(x[:i], history["i_count"][:i], label="infected",    color="red")
+    ax[1].plot(x[:i], history["r_count"][:i], label="recovered",   color="green")
+    ax[1].set_xticks([])
     fig.legend()
-
+    fig.tight_layout()
     fig.savefig("output/out{0}.png".format(i))
     plt.close("all")
 
-def draw_history(history_list):
+def draw_history(graph, positions, history_list):
     x = range(history_list[0]["s_count"].shape[0])
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(6, 6))
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
+    nx.draw_networkx_nodes(graph, positions, ax=ax[0], alpha=0.25)
+    nx.draw_networkx_edges(graph, positions, ax=ax[0], alpha=0.1)
     for history in history_list:
-        ax.plot(x, history["s_count"], color="blue", alpha=0.5)
-        ax.plot(x, history["i_count"], color="red", alpha=0.5)
-        ax.plot(x, history["r_count"], color="green", alpha=0.5)
+        ax[1].plot(x, history["s_count"], color="blue", alpha=0.5)
+        ax[1].plot(x, history["i_count"], color="red", alpha=0.5)
+        ax[1].plot(x, history["r_count"], color="green", alpha=0.5)
     fig.tight_layout()
     fig.savefig("out.png")
     plt.close("all")
@@ -77,25 +84,28 @@ def make_gif():
         images.append(image)
         os.remove(path)
     
-    imageio.mimsave("mygif.gif", images, duration=0.5)
+    imageio.mimsave("mygif.gif", images, duration=0.25)
 
 def get_graph(graph_type):
     # TODO: make number of nodes configurable?
     if graph_type == "internet":
         return nx.random_internet_as_graph(250)
     elif graph_type == "rel-cave":
-        return nx.relaxed_caveman_graph(25, 10, 0.09)
+        return nx.relaxed_caveman_graph(50, 10, 0.09)
     elif graph_type == "con-cave":
         return nx.connected_caveman_graph(25, 10)
+    elif graph_type == "cliques":
+        return nx.ring_of_cliques(25, 10)
 
-def simulate(args, graph, agents):
+def simulate(args, graph, positions, agents):
     # get parameters
     n_steps       = args.steps
-    travel_prob   = args.travel
-    stay_prob     = args.stay
-    back_prob     = 1 - (travel_prob + stay_prob)
+    # travel_prob   = args.travel
+    # stay_prob     = args.stay
+    # back_prob     = 1 - (travel_prob + stay_prob)
     transmit_prob = args.transmit
     infect_time   = args.infect
+    social        = args.social
 
     n_agents = agents.shape[0]
 
@@ -110,14 +120,12 @@ def simulate(args, graph, agents):
 
     # keep path history (as a stack) for backtracking
     back = [[] for _ in range(n_agents)]
-
-    # node positions for drawing
-    positions = nx.spring_layout(graph, seed=0) 
+    social_distancing = False
 
     for step in tqdm(range(n_steps)):
-        s_count = np.count_nonzero(agents ==  1)
-        i_count = np.count_nonzero(agents == -1)
-        r_count = np.count_nonzero(agents ==  0)
+        s_count = np.count_nonzero(agents[:, 0] ==  1)
+        i_count = np.count_nonzero(agents[:, 0] == -1)
+        r_count = np.count_nonzero(agents[:, 0] ==  0)
         # print(s_count, i_count, r_count)
         history["s_count"][step] = s_count
         history["i_count"][step] = i_count
@@ -125,14 +133,20 @@ def simulate(args, graph, agents):
 
         contacts = defaultdict(list)
 
-        # TODO: temp social distancing, lol
-        if step == 50:
-            travel_prob = 0.05
-            back_prob   = 1 - (travel_prob + stay_prob)
+        # enforce social distancing by lowering travel probability
+        # when percentage of infected agents is >= 20%
+        if not social_distancing and (i_count / s_count >= 0.2):
+            # choose random agents to not participate
+            rand_idx = np.random.choice(n_agents, size=int(n_agents * social), replace=False)
+            agents[:, 2][rand_idx] = 0.1
+            agents[:, 4][rand_idx] = 1 - (0.1 + stay_prob)
+            social_distancing = True
 
-        if args.gif and (step + 1) % 5 == 0: draw_graph(graph, positions, agents, history, step)
+        # if args.gif and (step + 1) % 5 == 0 or step == 0: draw_graph(graph, positions, agents, history, step)
+        if args.gif: draw_graph(graph, positions, agents, history, step)
 
-        for i, (stat, node) in enumerate(agents):
+        # just unpack them all
+        for i, (stat, node, travel_prob, stay_prob, back_prob) in enumerate(agents):
             # age any infected agents
             if stat == -1:
                 infect_times[i] -= 1
@@ -194,19 +208,26 @@ def simulate(args, graph, agents):
 
 if __name__ == "__main__":
     args = get_args()
+    np.random.seed(args.seed)
+    random.seed(args.seed)
     graph = get_graph(args.graph) # graph
-    positions = nx.spring_layout(graph, seed=0) # node positions
+    positions = nx.spring_layout(graph, seed=args.seed) # node positions
     history_list = []
 
-    runs = 1 if args.gif else 10
+    runs = 1 if args.gif else args.runs
 
-    # TODO: add strategy profile to agents?
     # create agents
     for i in range(runs):
-        agents = np.ones((args.agents, 2), dtype=int)
+        # agents are a vector [infection status, node, actions...]
+        agents = np.ones((args.agents, 2 + 3), dtype=float)
         agents[:, 1] = range(agents.shape[0]) # where to place them?
-        rand_ind = np.random.choice(range(agents.shape[0]), size=2)
-        agents[:, 0][rand_ind] = -1
-        history = simulate(args, graph, agents)
+        # set actions
+        agents[:, 2] = args.travel
+        agents[:, 3] = args.stay
+        agents[:, 4] = 1 - (args.travel + args.stay)
+        # randomly infect some
+        rand_idx = np.random.choice(range(agents.shape[0]), size=1)
+        agents[:, 0][rand_idx] = -1
+        history = simulate(args, graph, positions, agents)
         history_list.append(history)
-    if not args.gif: draw_history(history_list)
+    if not args.gif: draw_history(graph, positions, history_list)
