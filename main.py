@@ -9,12 +9,13 @@ import imageio
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 
 def get_args():
     parser = ArgumentParser(description="some kind of thing")
     parser.add_argument("-graph",  type=str, choices=["internet", "rel-cave", "con-cave", "cliques"], default="internet", help="graph structure")
-    parser.add_argument("-immune", type=str, choices=["none", "random", "degree", "population", "importance", "acquaint"], default="none", help="immunization strategy")
+    parser.add_argument("-immune", type=str, choices=["none", "random", "degree", "population", "importance", , "vulnerableDegree", "acquaint"], default="none", help="immunization strategy")
     parser.add_argument("-output", type=str, default="out", help="output gif/png filename")
     # parameters
     parser.add_argument("-runs",     type=int,   default=1,    help="number of simulations to run")
@@ -27,7 +28,7 @@ def get_args():
     parser.add_argument("-social",   type=float, default=0.00, help="percentage of agents that social distance")
     parser.add_argument("-n_immune", type=int,   default=10,   help="number of nodes to immunize")
     parser.add_argument("-p_immune", type=float, default=0.80, help="percentage of agents that get immunized at a node")
-    parser.add_argument("-seed",     type=int,   default=0,    help="random seed")
+    parser.add_argument("-seed",     type=int,   default=13,    help="random seed")
     parser.add_argument("-gif", action="store_true", help="make gif")
     return parser.parse_args()
 
@@ -129,7 +130,14 @@ def simulate(args, graph, positions, agents):
         "s_count": np.zeros(n_steps),
         "i_count": np.zeros(n_steps),
         "r_count": np.zeros(n_steps),
-        "v_count": np.zeros(n_steps)
+        "v_count": np.zeros(n_steps),
+
+        "is_ratio": np.zeros(n_steps),
+        "in_ratio": np.zeros(n_steps),
+        "rs_ratio": np.zeros(n_steps),
+        "rn_ratio": np.zeros(n_steps),
+        "vs_ratio": np.zeros(n_steps),
+        "vn_ratio": np.zeros(n_steps)
     }
 
     # track infection times
@@ -155,6 +163,13 @@ def simulate(args, graph, positions, agents):
         history["r_count"][step] = r_count
         history["v_count"][step] = v_count
 
+        history["is_ratio"][step] = i_count / (s_count + 1)
+        history["in_ratio"][step] = i_count / n_agents
+        history["rs_ratio"][step] = r_count / (s_count + 1)
+        history["rn_ratio"][step] = r_count / n_agents
+        history["vs_ratio"][step] = v_count / (s_count + 1)
+        history["vn_ratio"][step] = v_count / n_agents
+
         contacts = defaultdict(list)
 
         # enforce social distancing by lowering travel probability
@@ -175,6 +190,32 @@ def simulate(args, graph, positions, agents):
                 degree = np.array(graph.degree)
                 high_idx = np.argpartition(degree[:, 1], -n_immune)[-n_immune:]
                 immunized[high_idx] = 1
+            elif immune == "vulnerableDegree":
+                degree = np.array(graph.degree)
+                # holds the history of nodes that were selected by degree
+                dhist = []
+                # the offset index for each node, to know how much of dhist has already been applied
+                penaltyIndex = [0 for _ in range(n_nodes)]
+                for i in range(n_immune):
+                    # start with the current best candidate
+                    nextCandidate = np.argmax(degree[:, 1])
+                    candidate = -1
+                    # check to see if removing degree from nodes 
+                    while not candidate == nextCandidate:
+                        candidate = nextCandidate
+                        # apply a penalty if the candidate is connected to an already immunized node
+                        # specifically one not already accounted for
+                        for j in range(penaltyIndex[candidate], len(dhist)):
+                            if graph.has_edge(dhist[j], candidate):
+                                degree[candidate, 1] -= 1
+                        # update the index list to say penalties for nodes before len(dhist) are already applied
+                        penaltyIndex[candidate] = len(dhist)
+                        # prepare to go again
+                        nextCandidate = np.argmax(degree[:, 1])
+                    # update immunization, history, and make sure we don't select the candidate again
+                    degree[candidate, 1] = -1
+                    immunized[candidate] = 1
+                    dhist.append(candidate)
             elif immune == "population":
                 # will hold current population at each node
                 pop = [0 for _ in range(n_nodes)]
@@ -197,14 +238,15 @@ def simulate(args, graph, positions, agents):
                     vec = np.abs(v[:, -1])
                     # pick the index which contributes the most to vector
                     selected = np.argmax(vec)
+                    walker = selected
                     # increment to account for removed row/cols
                     for s in shist:
                         if selected >= s:
-                            selected += 1
+                            walker += 1
                     shist.append(selected)
-                    immunized[selected] = 1
+                    immunized[walker] = 1
                     # remove row/col to not consider
-                    A = np.delete(np.delete(A,selected,0), selected, 1)
+                    A = np.delete(np.delete(A, selected, 0), selected, 1)
             elif immune == "acquaint":
                 rand_idx = np.random.choice(n_nodes, size=n_immune, replace=False)
                 for idx in rand_idx:
@@ -283,7 +325,7 @@ def simulate(args, graph, positions, agents):
 
 if __name__ == "__main__":
     args = get_args()
-    print("running simulation on graph ({0}) immunizing ({1})".format(args.graph, args.immune))
+    print("running simulation on graph ({0}) immunizing ({1} -n_immune ({2}))".format(args.graph, args.immune, args.n_immune))
     np.random.seed(args.seed)
     random.seed(args.seed)
     graph = get_graph(args.graph) # graph
@@ -291,6 +333,12 @@ if __name__ == "__main__":
     history_list = []
 
     runs = 1 if args.gif else args.runs
+
+    s_count = np.zeros(runs, dtype=int)
+    r_count = np.zeros(runs, dtype=int)
+    v_count = np.zeros(runs, dtype=int)
+    rn_ratio = np.zeros(runs, dtype=float)
+    vn_ratio = np.zeros(runs, dtype=float)
 
     # create agents
     for i in range(runs):
@@ -302,8 +350,23 @@ if __name__ == "__main__":
         agents[:, 3] = args.stay
         agents[:, 4] = 1 - (args.travel + args.stay)
         # randomly infect some
-        rand_idx = np.random.choice(range(agents.shape[0]), size=1)
+        rand_idx = np.random.choice(range(agents.shape[0]), size=2)
         agents[:, 0][rand_idx] = -1
         history, immunized = simulate(args, graph, positions, agents)
         history_list.append(history)
+        history_data = np.array(list(history.values()))
+
+        s_count[i] = history["s_count"][-1]
+        r_count[i] = history["r_count"][-1]
+        v_count[i] = history["v_count"][-1]
+        rn_ratio[i] = history["rn_ratio"][-1]
+        vn_ratio[i] = history["vn_ratio"][-1]
     if not args.gif: draw_history(args, graph, positions, immunized, history_list)
+
+    print("  statistics")
+    print("  s_count median {0}, mean {1}, std {2}".format(np.median(s_count), np.mean(s_count), np.std(s_count)))
+    print("  r_count median {0}, mean {1}, std {2}".format(np.median(r_count), np.mean(r_count), np.std(r_count)))
+    print("  v_count median {0}, mean {1}, std {2}".format(np.median(v_count), np.mean(v_count), np.std(v_count)))
+    print("  rn_ratio median {0}, mean {1}, std {2}".format(np.median(rn_ratio), np.mean(rn_ratio), np.std(rn_ratio)))
+    print("  vn_ratio median {0}, mean {1}, std {2}".format(np.median(vn_ratio), np.mean(vn_ratio), np.std(vn_ratio)))
+    print()
