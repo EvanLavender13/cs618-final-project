@@ -15,7 +15,7 @@ from tqdm import tqdm
 def get_args():
     parser = ArgumentParser(description="some kind of thing")
     parser.add_argument("-graph",  type=str, choices=["internet", "rel-cave", "con-cave", "cliques"], default="internet", help="graph structure")
-    parser.add_argument("-immune", type=str, choices=["none", "random", "degree", "population", "importance", , "vulnerableDegree", "acquaint"], default="none", help="immunization strategy")
+    parser.add_argument("-immune", type=str, choices=["none", "random", "degree", "population", "importance", "vulnerableDegree", "acquaint"], default="none", help="immunization strategy")
     parser.add_argument("-output", type=str, default="out", help="output gif/png filename")
     # parameters
     parser.add_argument("-runs",     type=int,   default=1,    help="number of simulations to run")
@@ -151,6 +151,7 @@ def simulate(args, graph, positions, agents):
 
     social_distancing = False # whether social distancing is active
     immunizing        = False # whether immunization is active
+    safe_threshold    = -1
 
     for step in tqdm(range(n_steps)):
         s_count = np.count_nonzero(agents[:, 0] ==  1) # susceptible
@@ -171,10 +172,16 @@ def simulate(args, graph, positions, agents):
         history["vn_ratio"][step] = v_count / n_agents
 
         contacts = defaultdict(list)
+        ratio = i_count / (s_count + 1)
+        threshold = 0.1
+
+        # have we gone back below the threshold?
+        if (social_distancing or immunizing) and safe_threshold < 0 and ratio < threshold:
+            safe_threshold = step
 
         # enforce social distancing by lowering travel probability
         # when percentage of infected agents is >= 20%
-        if not social_distancing and (i_count / s_count >= 0.1):
+        if not social_distancing and ratio >= threshold:
             # choose random agents to not participate
             rand_idx = np.random.choice(n_agents, size=int(n_agents * social), replace=False)
             agents[:, 2][rand_idx] = 0.1
@@ -182,7 +189,7 @@ def simulate(args, graph, positions, agents):
             social_distancing = True
 
         # handle immunizing nodes
-        if not immunizing and (i_count / s_count >= 0.1):
+        if not immunizing and ratio >= threshold:
             if immune == "random":
                 rand_idx = np.random.choice(n_nodes, size=n_immune, replace=False)
                 immunized[rand_idx] = 1
@@ -321,7 +328,7 @@ def simulate(args, graph, positions, agents):
 
     if args.gif: make_gif(args)
 
-    return history, immunized
+    return history, immunized, safe_threshold
 
 if __name__ == "__main__":
     args = get_args()
@@ -339,6 +346,7 @@ if __name__ == "__main__":
     v_count = np.zeros(runs, dtype=int)
     rn_ratio = np.zeros(runs, dtype=float)
     vn_ratio = np.zeros(runs, dtype=float)
+    i_thresh = np.zeros(runs, dtype=int)
 
     # create agents
     for i in range(runs):
@@ -352,7 +360,7 @@ if __name__ == "__main__":
         # randomly infect some
         rand_idx = np.random.choice(range(agents.shape[0]), size=2)
         agents[:, 0][rand_idx] = -1
-        history, immunized = simulate(args, graph, positions, agents)
+        history, immunized, safe_threshold = simulate(args, graph, positions, agents)
         history_list.append(history)
         history_data = np.array(list(history.values()))
 
@@ -361,6 +369,7 @@ if __name__ == "__main__":
         v_count[i] = history["v_count"][-1]
         rn_ratio[i] = history["rn_ratio"][-1]
         vn_ratio[i] = history["vn_ratio"][-1]
+        i_thresh[i] = safe_threshold
     if not args.gif: draw_history(args, graph, positions, immunized, history_list)
 
     print("  statistics")
@@ -369,4 +378,5 @@ if __name__ == "__main__":
     print("  v_count median {0}, mean {1}, std {2}".format(np.median(v_count), np.mean(v_count), np.std(v_count)))
     print("  rn_ratio median {0}, mean {1}, std {2}".format(np.median(rn_ratio), np.mean(rn_ratio), np.std(rn_ratio)))
     print("  vn_ratio median {0}, mean {1}, std {2}".format(np.median(vn_ratio), np.mean(vn_ratio), np.std(vn_ratio)))
+    print("  i_thresh median {0}, mean {1}, std {2}".format(np.median(i_thresh), np.mean(i_thresh), np.std(i_thresh)))
     print()
