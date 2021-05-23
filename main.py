@@ -14,7 +14,8 @@ from tqdm import tqdm
 def get_args():
     parser = ArgumentParser(description="some kind of thing")
     parser.add_argument("-graph",  type=str, choices=["internet", "rel-cave", "con-cave", "cliques"], default="internet", help="graph structure")
-    parser.add_argument("-immune", type=str, choices=["none", "random", "degree"], default="none", help="immunization strategy")
+    parser.add_argument("-immune", type=str, choices=["none", "random", "degree", "population", "importance", "acquaint"], default="none", help="immunization strategy")
+    parser.add_argument("-output", type=str, default="out", help="output gif/png filename")
     # parameters
     parser.add_argument("-runs",     type=int,   default=1,    help="number of simulations to run")
     parser.add_argument("-steps",    type=int,   default=100,  help="number of simulation steps")
@@ -24,6 +25,8 @@ def get_args():
     parser.add_argument("-transmit", type=float, default=0.35, help="transmit probability")
     parser.add_argument("-infect",   type=int,   default=20,   help="infection time (in steps)")
     parser.add_argument("-social",   type=float, default=0.00, help="percentage of agents that social distance")
+    parser.add_argument("-n_immune", type=int,   default=10,   help="number of nodes to immunize")
+    parser.add_argument("-p_immune", type=float, default=0.80, help="percentage of agents that get immunized at a node")
     parser.add_argument("-seed",     type=int,   default=0,    help="random seed")
     parser.add_argument("-gif", action="store_true", help="make gif")
     return parser.parse_args()
@@ -55,7 +58,7 @@ def draw_graph(graph, positions, agents, immunized, history, i=0):
     fig.savefig("output/out{0}.png".format(i))
     plt.close("all")
 
-def draw_history(graph, positions, immunized, history_list):
+def draw_history(args, graph, positions, immunized, history_list):
     x = range(history_list[0]["s_count"].shape[0])
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(6, 3))
     nx.draw_networkx_nodes(graph, positions, nodelist=np.where(immunized == 0)[0], ax=ax[0], node_size=50, alpha=0.25)
@@ -67,7 +70,7 @@ def draw_history(graph, positions, immunized, history_list):
         ax[1].plot(x, history["r_count"], color="green", alpha=0.5)
         ax[1].plot(x, history["v_count"], color="orange", alpha=0.5)
     fig.tight_layout()
-    fig.savefig("out.png")
+    fig.savefig("{0}.png".format(args.output))
     plt.close("all")
 
 # https://stackoverflow.com/a/5967539
@@ -82,7 +85,7 @@ def natural_keys(text):
     '''
     return [ atoi(c) for c in re.split(r'(\d+)', text) ]
 
-def make_gif():
+def make_gif(args):
     images = []
     #with imageio.get_writer("mygif.gif", mode="I") as writer:
     files = sorted(os.listdir("output"), key=natural_keys)
@@ -93,14 +96,14 @@ def make_gif():
         images.append(image)
         os.remove(path)
     
-    imageio.mimsave("mygif.gif", images, duration=0.25)
+    imageio.mimsave("{0}.gif".format(args.output), images, duration=0.25)
 
 def get_graph(graph_type):
     # TODO: make number of nodes configurable?
     if graph_type == "internet":
         return nx.random_internet_as_graph(500)
     elif graph_type == "rel-cave":
-        return nx.relaxed_caveman_graph(50, 10, 0.09)
+        return nx.relaxed_caveman_graph(50, 10, 0.1)
     elif graph_type == "con-cave":
         return nx.connected_caveman_graph(25, 10)
     elif graph_type == "cliques":
@@ -116,6 +119,8 @@ def simulate(args, graph, positions, agents):
     infect_time   = args.infect
     social        = args.social
     immune        = args.immune
+    n_immune      = args.n_immune
+    p_immune      = args.p_immune
 
     n_agents = agents.shape[0]
     n_nodes  = graph.number_of_nodes()
@@ -163,7 +168,6 @@ def simulate(args, graph, positions, agents):
 
         # handle immunizing nodes
         if not immunizing and (i_count / s_count >= 0.1):
-            n_immune = int(n_nodes * 0.01)
             if immune == "random":
                 rand_idx = np.random.choice(n_nodes, size=n_immune, replace=False)
                 immunized[rand_idx] = 1
@@ -171,6 +175,42 @@ def simulate(args, graph, positions, agents):
                 degree = np.array(graph.degree)
                 high_idx = np.argpartition(degree[:, 1], -n_immune)[-n_immune:]
                 immunized[high_idx] = 1
+            elif immune == "population":
+                # will hold current population at each node
+                pop = [0 for _ in range(n_nodes)]
+                # go through agents and update count to each node
+                for i in agents:
+                    pop[int(i[1])] += 1
+                high_idx = np.argpartition(pop, -n_immune)[-n_immune:]
+                immunized[high_idx] = 1
+            elif immune == "importance":
+                # make the adjacency matrix
+                A = np.zeros((n_nodes, n_nodes))
+                for e in graph.edges:
+                    A[e[0], e[1]] = 1
+                    A[e[1], e[0]] = 1
+                # stores history of rows/cols removed
+                shist = []
+                for i in range(n_immune):
+                    # get the abs eigenvector with max eigenvalue
+                    _, v = np.linalg.eigh(A)
+                    vec = np.abs(v[:, -1])
+                    # pick the index which contributes the most to vector
+                    selected = np.argmax(vec)
+                    # increment to account for removed row/cols
+                    for s in shist:
+                        if selected >= s:
+                            selected += 1
+                    shist.append(selected)
+                    immunized[selected] = 1
+                    # remove row/col to not consider
+                    A = np.delete(np.delete(A,selected,0), selected, 1)
+            elif immune == "acquaint":
+                rand_idx = np.random.choice(n_nodes, size=n_immune, replace=False)
+                for idx in rand_idx:
+                    new_node = np.random.choice(graph.adj[idx])
+                    immunized[new_node] = 1
+
             immunizing = True
 
         # if args.gif and (step + 1) % 5 == 0 or step == 0: draw_graph(graph, positions, agents, history, step)
@@ -216,7 +256,9 @@ def simulate(args, graph, positions, agents):
             # process immunization
             if immunized[int(node)] == 1:
                 # immunize the group
-                agents[:, 0][group] = 2.0
+                for idx in group:
+                    if np.random.random() < p_immune:
+                        agents[:, 0][idx] = 2.0
 
             # process infected contacts
             if len(group) > 1:
@@ -235,12 +277,13 @@ def simulate(args, graph, positions, agents):
                 res = np.random.choice([-1, 1], size=s_agents.shape[0], p=[prob, 1.0 - prob])
                 agents[:, 0][s_agents] *= res
 
-    if args.gif: make_gif()
+    if args.gif: make_gif(args)
 
     return history, immunized
 
 if __name__ == "__main__":
     args = get_args()
+    print("running simulation on graph ({0}) immunizing ({1})".format(args.graph, args.immune))
     np.random.seed(args.seed)
     random.seed(args.seed)
     graph = get_graph(args.graph) # graph
@@ -263,4 +306,4 @@ if __name__ == "__main__":
         agents[:, 0][rand_idx] = -1
         history, immunized = simulate(args, graph, positions, agents)
         history_list.append(history)
-    if not args.gif: draw_history(graph, positions, immunized, history_list)
+    if not args.gif: draw_history(args, graph, positions, immunized, history_list)
